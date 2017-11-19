@@ -202,11 +202,9 @@ def training(model, dataset, args, saver = None): # saver is an object to save p
                 hr, ndcg = np.array(hits).mean(), np.array(ndcgs).mean()
                 eval_time = time() - eval_begin
 
-                # AUC_begin = time()
-                # AUC = eval_AUC(model, sess, dataset, sample_dict)
-                # AUC_time = time() - AUC_begin
-
-                AUC_time, AUC = 0, 0
+                AUC_begin = time()
+                AUC = eval_AUC(model, sess, dataset, sample_dict)
+                AUC_time = time() - AUC_begin
 
                 logging.info(
                     "Epoch %d [%.1fs + %.1fs]: HR = %.4f, NDCG = %.4f [%.1fs] AUC = %.4f [%.1fs] train_loss = %.4f [%.1fs]" % (
@@ -232,6 +230,8 @@ def training_batch(model, sess, batches):
 def training_loss(model, sess, batches):
     train_loss = 0.0
     num_batch = len(batches[1])
+    if num_batch == 0:
+        print "!!!"
     user_input, item_input, labels = batches
     for i in range(len(labels)):
         feed_dict = {model.user_input: user_input[i][:, None],
