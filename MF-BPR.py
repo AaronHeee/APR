@@ -64,6 +64,7 @@ def parse_args():
 # output: [_user_input_list, _item_input_list, _labels_list]
 def sampling(args, dataset, num_negatives):
     _user_input, _item_input, _labels = [], [], []
+    sample_dict = {}
     num_users, num_items =  dataset.trainMatrix.shape
     for (u, i) in dataset.trainMatrix.keys():
         # positive instance
@@ -77,7 +78,12 @@ def sampling(args, dataset, num_negatives):
             j = np.random.randint(num_items)
         item_pair.append(j)
         _item_input.append(item_pair)
-    return _user_input, _item_input, _labels
+        if sample_dict.has_key(u):
+            sample_dict[u].append(i)
+        else:
+            sample_dict[u] = [i]
+        sample_dict[u].append(j)
+    return (_user_input, _item_input, _labels), sample_dict
 
 def shuffle(samples, batch_size, dataset = None):
     global _user_input
@@ -178,7 +184,7 @@ def training(model, dataset, args, saver = None): # saver is an object to save p
             # initialize for training batches
 
             batch_begin = time()
-            samples = sampling(args, dataset, args.num_neg)
+            samples, sample_dict = sampling(args, dataset, args.num_neg)
             batches = shuffle(samples, args.batch_size)
             batch_time = time() - batch_begin
 
@@ -196,11 +202,17 @@ def training(model, dataset, args, saver = None): # saver is an object to save p
                 hr, ndcg = np.array(hits).mean(), np.array(ndcgs).mean()
                 eval_time = time() - eval_begin
 
+                # AUC_begin = time()
+                # AUC = eval_AUC(model, sess, dataset, sample_dict)
+                # AUC_time = time() - AUC_begin
+
+                AUC_time, AUC = 0, 0
+
                 logging.info(
-                    "Epoch %d [%.1fs + %.1fs]: HR = %.4f, NDCG = %.4f [%.1fs] train_loss = %.4f [%.1fs]" % (
-                        epoch_count, batch_time, train_time, hr, ndcg, eval_time, train_loss, loss_time))
-                print "Epoch %d [%.1fs + %.1fs]: HR = %.4f, NDCG = %.4f [%.1fs] train_loss = %.4f [%.1fs]" % (
-                        epoch_count, batch_time, train_time, hr, ndcg, eval_time, train_loss, loss_time)
+                    "Epoch %d [%.1fs + %.1fs]: HR = %.4f, NDCG = %.4f [%.1fs] AUC = %.4f [%.1fs] train_loss = %.4f [%.1fs]" % (
+                        epoch_count, batch_time, train_time, hr, ndcg, eval_time, AUC, AUC_time, train_loss, loss_time))
+                print "Epoch %d [%.1fs + %.1fs]: HR = %.4f, NDCG = %.4f [%.1fs] AUC = %.4f [%.1fs] train_loss = %.4f [%.1fs]" % (
+                        epoch_count, batch_time, train_time, hr, ndcg, eval_time, AUC, AUC_time, train_loss, loss_time)
 
         if saver != None:
             saver.save(model, sess)
@@ -228,6 +240,32 @@ def training_loss(model, sess, batches):
         loss = sess.run(model.loss, feed_dict)
         train_loss += loss
     return train_loss / num_batch
+
+
+# input: model, sess, dataset, samples
+# output: AUC
+
+def eval_AUC(model, sess, dataset, sample_dict):
+    AUC_user = 0
+    for user in range(dataset.num_users):
+        # generate items list
+        item_input = []
+        test_item = dataset.testRatings[user][1]
+        train_items = sample_dict[user]
+
+        for j in range(dataset.num_items):
+            if j != test_item and j not in train_items:
+                item_input.append([test_item, j])
+
+        user_input = np.full(len(item_input), user, dtype='int32')[:, None]
+        item_input = np.array(item_input)
+
+        feed_dict = {model.user_input: user_input,
+                     model.item_input: item_input, }
+        result = sess.run(model.result, feed_dict)
+        AUC_user += (result > 0).sum() / len(item_input)  # average number Xuij > 0
+    return AUC_user / dataset.num_users
+
 
 def init_logging(args):
     regs = eval(args.regs)

@@ -96,8 +96,8 @@ class Dataset(object):
                     items = []
                     u_ += 1
                 index += 1
-                if index<300:
-                    items.append(i)
+                #if index<300:
+                items.append(i)
                 line = f.readline()
         lists.append(items)
         print "already load the trainList..."
