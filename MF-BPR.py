@@ -7,13 +7,13 @@ import heapq # for retrieval topK
 from multiprocessing import Pool
 from multiprocessing import cpu_count
 import tensorflow as tf
+import argparse
 import logging
 from time import time
 from time import strftime
 from time import localtime
 from Dataset import Dataset
 from saver import GMFSaver
-import argparse
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
@@ -22,7 +22,7 @@ _item_input = None
 _labels = None
 _batch_size = None
 _index = None
-
+_sample_dict = None
 _model = None
 _sess = None
 _dataset = None
@@ -230,8 +230,6 @@ def training_batch(model, sess, batches):
 def training_loss(model, sess, batches):
     train_loss = 0.0
     num_batch = len(batches[1])
-    if num_batch == 0:
-        print "!!!"
     user_input, item_input, labels = batches
     for i in range(len(labels)):
         feed_dict = {model.user_input: user_input[i][:, None],
@@ -239,33 +237,44 @@ def training_loss(model, sess, batches):
                      model.labels: labels[i][:, None]}
         loss = sess.run(model.loss, feed_dict)
         train_loss += loss
-    return train_loss / num_batch
+        return train_loss / num_batch
 
-
-# input: model, sess, dataset, samples
-# output: AUC
 
 def eval_AUC(model, sess, dataset, sample_dict):
+
+    global _dataset
+    global _sample_dict
+    global _model
+
+    _dataset = dataset
+    _sample_dict = sample_dict
+    _model = model
+
+    users = range(_dataset.num_users)
+
+    pool = Pool(cpu_count())
+    feed_dicts = pool.map(_AUC_input, users)
+    pool.close()
+    pool.join()
     AUC_user = 0
-    for user in range(dataset.num_users):
-        # generate items list
-        item_input = []
-        test_item = dataset.testRatings[user][1]
-        train_items = sample_dict[user]
-
-        for j in range(dataset.num_items):
-            if j != test_item and j not in train_items:
-                item_input.append([test_item, j])
-
-        user_input = np.full(len(item_input), user, dtype='int32')[:, None]
-        item_input = np.array(item_input)
-
-        feed_dict = {model.user_input: user_input,
-                     model.item_input: item_input, }
+    for user_input, item_input in feed_dicts:
+        feed_dict = {model.user_input: user_input, model.item_input: item_input}
         result = sess.run(model.result, feed_dict)
-        AUC_user += (result > 0).sum() / len(item_input)  # average number Xuij > 0
+        AUC_user += (result > 0).sum() / len(user_input)  # average number Xuij > 0
     return AUC_user / dataset.num_users
 
+def _AUC_input(user):
+    # generate items_list
+    item_input = []
+    test_item = _dataset.testRatings[user][1]
+    train_items = _sample_dict[user]
+    for j in range(_dataset.num_items):
+        if j != test_item and j not in train_items:
+            item_input.append([test_item, j])
+
+    user_input = np.full(len(item_input), user, dtype='int32')[:, None]
+    item_input = np.array(item_input)
+    return user_input, item_input
 
 def init_logging(args):
     regs = eval(args.regs)
