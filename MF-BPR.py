@@ -132,9 +132,9 @@ class GMF:
             self.embedding_Q = tf.Variable(tf.truncated_normal(shape=[self.num_items, self.embedding_size], mean=0.0, stddev=0.01),
                                                                 name='embedding_Q', dtype=tf.float32)  #(items, embedding_size)
             #self.h = tf.Variable(tf.ones([self.embedding_size, 1]), name='h', dtype=tf.float32)  #how to initialize it  (embedding_size, 1)
-            # self.h = tf.Variable(tf.random_uniform([self.embedding_size, 1], minval = -tf.sqrt(3/self.embedding_size),
-            #                                        maxval = tf.sqrt(3/self.embedding_size)), name = 'h')
-            self.h = tf.constant(1.0, tf.float32, [self.embedding_size, 1], name = "h")
+            self.h = tf.Variable(tf.random_uniform([self.embedding_size, 1], minval = -tf.sqrt(3/self.embedding_size),
+                                                   maxval = tf.sqrt(3/self.embedding_size)), name = 'h')
+            # self.h = tf.constant(1.0, tf.float32, [self.embedding_size, 1], name = "h")
     def _create_inference(self, item_input):
         with tf.name_scope("inference"):
             self.embedding_p = tf.reduce_sum(tf.nn.embedding_lookup(self.embedding_P, self.user_input), 1)
