@@ -176,9 +176,9 @@ def training(model, dataset, args, saver = None): # saver is an object to save p
         for epoch_count in range(args.epochs):
 
             # initialize for training batches
-            samples = sampling(args, dataset, args.num_neg)
 
             batch_begin = time()
+            samples = sampling(args, dataset, args.num_neg)
             batches = shuffle(samples, args.batch_size)
             batch_time = time() - batch_begin
 
@@ -195,11 +195,13 @@ def training(model, dataset, args, saver = None): # saver is an object to save p
                 hits, ndcgs = evaluate(model, sess, dataset, EvalDict)
                 hr, ndcg = np.array(hits).mean(), np.array(ndcgs).mean()
                 eval_time = time() - eval_begin
+
                 logging.info(
                     "Epoch %d [%.1fs + %.1fs]: HR = %.4f, NDCG = %.4f [%.1fs] train_loss = %.4f [%.1fs]" % (
                         epoch_count, batch_time, train_time, hr, ndcg, eval_time, train_loss, loss_time))
                 print "Epoch %d [%.1fs + %.1fs]: HR = %.4f, NDCG = %.4f [%.1fs] train_loss = %.4f [%.1fs]" % (
                         epoch_count, batch_time, train_time, hr, ndcg, eval_time, train_loss, loss_time)
+
         if saver != None:
             saver.save(model, sess)
 
