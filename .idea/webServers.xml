@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="531d9053-a476-462e-86be-24da585b13bd" name="SoC" url="http://xcnc22.comp.nus.edu.sg">
+        <fileTransfer host="xcnc22.comp.nus.edu.sg" port="22" rootFolder="/home/x/xiangw" accessType="SFTP">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" />
+          </advancedOptions>
+          <option name="port" value="22" />
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>

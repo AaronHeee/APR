@@ -132,14 +132,15 @@ class GMF:
             self.embedding_Q = tf.Variable(tf.truncated_normal(shape=[self.num_items, self.embedding_size], mean=0.0, stddev=0.01),
                                                                 name='embedding_Q', dtype=tf.float32)  #(items, embedding_size)
             #self.h = tf.Variable(tf.ones([self.embedding_size, 1]), name='h', dtype=tf.float32)  #how to initialize it  (embedding_size, 1)
-            self.h = tf.Variable(tf.random_uniform([self.embedding_size, 1], minval = -tf.sqrt(3/self.embedding_size),
-                                                   maxval = tf.sqrt(3/self.embedding_size)), name = 'h')
+            # self.h = tf.Variable(tf.random_uniform([self.embedding_size, 1], minval = -tf.sqrt(3/self.embedding_size),
+            #                                        maxval = tf.sqrt(3/self.embedding_size)), name = 'h')
+            self.h = tf.constant(1.0, tf.float32, [self.embedding_size, 1], name = "h")
     def _create_inference(self, item_input):
         with tf.name_scope("inference"):
             self.embedding_p = tf.reduce_sum(tf.nn.embedding_lookup(self.embedding_P, self.user_input), 1)
             self.embedding_q = tf.reduce_sum(tf.nn.embedding_lookup(self.embedding_Q, item_input), 1) #(b, embedding_size)
             return self.embedding_p, self.embedding_q,\
-                tf.sigmoid(tf.matmul(self.embedding_p*self.embedding_q, self.h))  #(b, embedding_size) * (embedding_size, 1)
+                tf.matmul(self.embedding_p*self.embedding_q, self.h)  #(b, embedding_size) * (embedding_size, 1)
 
     def _create_loss(self):
         with tf.name_scope("loss"):
@@ -149,8 +150,7 @@ class GMF:
             self.loss = tf.reduce_sum(tf.log(1 + tf.exp(-self.result))) \
                                 + self.lambda_bilinear * tf.reduce_sum(tf.square(self.p1)) \
                                 + self.lambda_bilinear * tf.reduce_sum(tf.square(self.p2)) \
-                                + self.gamma_bilinear * tf.reduce_sum(tf.square(self.q1)) \
-                                + self.gamma_bilinear * tf.reduce_sum(tf.square(self.q2))
+                                + self.gamma_bilinear * tf.reduce_sum(tf.square(self.q1))
     def _create_optimizer(self):
         with tf.name_scope("optimizer"):
             self.optimizer = tf.train.AdagradOptimizer(learning_rate=self.learning_rate).minimize(self.loss)
@@ -169,14 +169,14 @@ def training(model, dataset, args, saver = None): # saver is an object to save p
         logging.info("initialized")
         print "initialized"
 
-        # initialize for training batches
-        samples = sampling(args, dataset, args.num_neg)
-
         # initialize for Evaluate
         EvalDict = init_evaluate_model(model, dataset)
 
         # train by epoch
         for epoch_count in range(args.epochs):
+
+            # initialize for training batches
+            samples = sampling(args, dataset, args.num_neg)
 
             batch_begin = time()
             batches = shuffle(samples, args.batch_size)
