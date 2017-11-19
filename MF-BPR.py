@@ -26,7 +26,7 @@ _model = None
 _sess = None
 _dataset = None
 _K = None
-_DictList = None
+_feed_dict = None
 
 
 def parse_args():
@@ -61,7 +61,7 @@ def parse_args():
 
 # input: dataset(Mat, List, Rating, Negatives), batch_choice, num_negatives
 # output: [_user_input_list, _item_input_list, _labels_list]
-def sampling(args, dataset, num_negatives):
+def sampling(dataset):
     _user_input, _item_input, _labels = [], [], []
     sample_dict = {}
     num_users, num_items =  dataset.trainMatrix.shape
@@ -178,7 +178,7 @@ def training(model, dataset, args, saver = None): # saver is an object to save p
             # initialize for training batches
 
             batch_begin = time()
-            samples, sample_dict = sampling(args, dataset, args.num_neg)
+            samples = sampling(dataset)
             batches = shuffle(samples, args.batch_size)
             batch_time = time() - batch_begin
 
@@ -228,7 +228,6 @@ def training_loss(model, sess, batches):
         train_loss += loss
         return train_loss / num_batch
 
-
 def init_eval_model(model, dataset):
     global _dataset
     global _model
@@ -268,34 +267,37 @@ def evaluate(model, sess, dataset, feed_dicts):
     _K = 100
     _feed_dicts = feed_dicts
 
-    pool = Pool(cpu_count())
-    res = pool.map(_eval_by_user, range(_dataset.num_users))
-    pool.join()
-    pool.close()
-
+    res = []
+    for user in range(_dataset.num_users):
+        res.append(_eval_by_user(user))
     res = np.array(res)
-    hr, ndcg, auc = (res.mean(0)).tolist()
+    hr, ndcg, auc, time = (res.mean(axis = 0)).tolist()
+
+    # print time
+    # print "[%.1f]" % time*_dataset.num_users,
 
     return hr, ndcg, auc
 
 def _eval_by_user(user):
-
     map_item_score = {}
     user_input, item_input = _feed_dicts[user]
     feed_dict = {model.user_input: user_input, model.item_input: item_input}
     gtItem = _dataset.testRatings[user][1]
     predictions = _sess.run(_model.output, feed_dict)
+    items = np.sum(item_input, axis = 1).tolist()
 
     for i in xrange(len(item_input)):
-        item = item_input[i]
+        item = items[i]
         map_item_score[item] = predictions[i]
 
+    rank_begin = time()
     ranklist = heapq.nlargest(_K, map_item_score, key=map_item_score.get)
+    rank_time = time() - rank_begin
 
     hr = gtItem in ranklist
     ndcg = _getNDCG(ranklist, gtItem)
-    auc = (predictions < predictions[-1]).sum() / len(user_input)
-    return (hr, ndcg, auc)
+    auc = (predictions < predictions[-1]).sum() / len(user_input)  # predictions[-1] is the positive Item of testing set
+    return (hr, ndcg, auc, rank_time)
 
 def _getNDCG(ranklist, gtItem):
     for i in xrange(len(ranklist)):
