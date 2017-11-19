@@ -22,7 +22,6 @@ _item_input = None
 _labels = None
 _batch_size = None
 _index = None
-_sample_dict = None
 _model = None
 _sess = None
 _dataset = None
@@ -78,12 +77,7 @@ def sampling(args, dataset, num_negatives):
             j = np.random.randint(num_items)
         item_pair.append(j)
         _item_input.append(item_pair)
-        if sample_dict.has_key(u):
-            sample_dict[u].append(i)
-        else:
-            sample_dict[u] = [i]
-        sample_dict[u].append(j)
-    return (_user_input, _item_input, _labels), sample_dict
+    return _user_input, _item_input, _labels
 
 def shuffle(samples, batch_size, dataset = None):
     global _user_input
@@ -176,7 +170,7 @@ def training(model, dataset, args, saver = None): # saver is an object to save p
         print "initialized"
 
         # initialize for Evaluate
-        EvalDict = init_evaluate_model(model, dataset)
+        eval_feed_dicts = init_eval_model(model, dataset)
 
         # train by epoch
         for epoch_count in range(args.epochs):
@@ -198,19 +192,14 @@ def training(model, dataset, args, saver = None): # saver is an object to save p
                 loss_time = time() - loss_begin
 
                 eval_begin = time()
-                hits, ndcgs = evaluate(model, sess, dataset, EvalDict)
-                hr, ndcg = np.array(hits).mean(), np.array(ndcgs).mean()
+                hr, ndcg, auc = evaluate(model, sess, dataset, eval_feed_dicts)
                 eval_time = time() - eval_begin
 
-                AUC_begin = time()
-                AUC = eval_AUC(model, sess, dataset, sample_dict)
-                AUC_time = time() - AUC_begin
-
                 logging.info(
-                    "Epoch %d [%.1fs + %.1fs]: HR = %.4f, NDCG = %.4f [%.1fs] AUC = %.4f [%.1fs] train_loss = %.4f [%.1fs]" % (
-                        epoch_count, batch_time, train_time, hr, ndcg, eval_time, AUC, AUC_time, train_loss, loss_time))
-                print "Epoch %d [%.1fs + %.1fs]: HR = %.4f, NDCG = %.4f [%.1fs] AUC = %.4f [%.1fs] train_loss = %.4f [%.1fs]" % (
-                        epoch_count, batch_time, train_time, hr, ndcg, eval_time, AUC, AUC_time, train_loss, loss_time)
+                    "Epoch %d [%.1fs + %.1fs]: HR = %.4f, NDCG = %.4f AUC = %.4f [%.1fs] train_loss = %.4f [%.1fs]" % (
+                        epoch_count, batch_time, train_time, hr, ndcg, auc, eval_time, train_loss, loss_time))
+                print "Epoch %d [%.1fs + %.1fs]: HR = %.4f, NDCG = %.4f AUC = %.4f [%.1fs] train_loss = %.4f [%.1fs]" % (
+                        epoch_count, batch_time, train_time, hr, ndcg, auc, eval_time, train_loss, loss_time)
 
         if saver != None:
             saver.save(model, sess)
@@ -240,41 +229,80 @@ def training_loss(model, sess, batches):
         return train_loss / num_batch
 
 
-def eval_AUC(model, sess, dataset, sample_dict):
-
+def init_eval_model(model, dataset):
     global _dataset
-    global _sample_dict
     global _model
-
     _dataset = dataset
-    _sample_dict = sample_dict
     _model = model
 
-    users = range(_dataset.num_users)
-
     pool = Pool(cpu_count())
-    feed_dicts = pool.map(_AUC_input, users)
+    feed_dicts = pool.map(_evaluate_input, range(_dataset.num_users))
     pool.close()
     pool.join()
-    AUC_user = 0
-    for user_input, item_input in feed_dicts:
-        feed_dict = {model.user_input: user_input, model.item_input: item_input}
-        result = sess.run(model.result, feed_dict)
-        AUC_user += (result > 0).sum() / len(user_input)  # average number Xuij > 0
-    return AUC_user / dataset.num_users
 
-def _AUC_input(user):
+    print("already load the evaluate model...")
+    return feed_dicts
+
+def _evaluate_input(user):
     # generate items_list
     item_input = []
     test_item = _dataset.testRatings[user][1]
-    train_items = _sample_dict[user]
+    train_items = _dataset.trainList[user]
     for j in range(_dataset.num_items):
         if j != test_item and j not in train_items:
-            item_input.append([test_item, j])
-
+            item_input.append(j)
+    item_input.append(test_item)
     user_input = np.full(len(item_input), user, dtype='int32')[:, None]
-    item_input = np.array(item_input)
+    item_input = np.array(item_input)[:,None]
     return user_input, item_input
+
+def evaluate(model, sess, dataset, feed_dicts):
+    global _model
+    global _K
+    global _sess
+    global _dataset
+    global _feed_dicts
+    _dataset = dataset
+    _model = model
+    _sess = sess
+    _K = 100
+    _feed_dicts = feed_dicts
+
+    pool = Pool(cpu_count())
+    res = pool.map(_eval_by_user, range(_dataset.num_users))
+    pool.join()
+    pool.close()
+
+    res = np.array(res)
+    hr, ndcg, auc = (res.mean(0)).tolist()
+
+    return hr, ndcg, auc
+
+def _eval_by_user(user):
+
+    map_item_score = {}
+    user_input, item_input = _feed_dicts[user]
+    feed_dict = {model.user_input: user_input, model.item_input: item_input}
+    gtItem = _dataset.testRatings[user][1]
+    predictions = _sess.run(_model.output, feed_dict)
+
+    for i in xrange(len(item_input)):
+        item = item_input[i]
+        map_item_score[item] = predictions[i]
+
+    ranklist = heapq.nlargest(_K, map_item_score, key=map_item_score.get)
+
+    hr = gtItem in ranklist
+    ndcg = _getNDCG(ranklist, gtItem)
+    auc = (predictions < predictions[-1]).sum() / len(user_input)
+    return (hr, ndcg, auc)
+
+def _getNDCG(ranklist, gtItem):
+    for i in xrange(len(ranklist)):
+        item = ranklist[i]
+        if item == gtItem:
+            return math.log(2) / math.log(i+2)
+    return 0
 
 def init_logging(args):
     regs = eval(args.regs)
@@ -290,85 +318,6 @@ def init_logging(args):
     logging.info("regs:%.8f, %.8f  learning_rate:%.4f"
                  % (regs[0], regs[1], args.lr))
 
-# evaluation model
-def init_evaluate_model(model, dataset):
-    DictList = []
-    for idx in xrange(len(dataset.testRatings)):
-        user, gtItem = dataset.testRatings[idx]
-        if model.evaluate == 0:
-            items = dataset.testNegatives[idx]
-        else:
-            pos_samples = sorted(dataset.trainList[idx])
-            items = range(dataset.num_items)
-            for i in items[::-1]:
-                if not pos_samples:
-                    break
-                elif pos_samples[-1] == i:
-                    del items[i]
-                    pos_samples.pop()
-                elif pos_samples[-1] > i:
-                    pos_samples.pop()
-                if i == gtItem:
-                    del items[i]
-        items.append(gtItem)
-        # Get prediction scores
-        labels = np.zeros(len(items))[:, None]
-        labels[-1] = 1
-        user_input = np.full(len(items), user, dtype='int32')[:, None]
-        item_input = np.array(items)[:,None]
-        feed_dict = {model.user_input: user_input,  model.item_input: item_input, model.labels: labels}
-
-        DictList.append(feed_dict)
-    print("already load the evaluate model...")
-    return DictList
-
-def evaluate(model, sess, dataset, DictList):
-    global _model
-    global _K
-    global _DictList
-    global _sess
-    global _dataset
-    _dataset = dataset
-    _model = model
-    _DictList = DictList
-    _sess = sess
-    _K = 10
-
-    hits, ndcgs, losses = [],[],[]
-    for idx in xrange(len(_DictList)):
-        (hr,ndcg) = _eval_one_rating(idx)
-        hits.append(hr)
-        ndcgs.append(ndcg)
-    return (hits, ndcgs)
-
-def _eval_one_rating(idx):
-    map_item_score = {}
-    items = _DictList[idx][_model.item_input]  #have been appended
-    gtItem = _dataset.testRatings[idx][1]
-    items = (np.sum(items,axis = 1)).tolist()
-    predictions = _sess.run(_model.output, feed_dict = _DictList[idx])
-
-    for i in xrange(len(items)):
-        item = items[i]
-        map_item_score[item] = predictions[i]
-
-    ranklist = heapq.nlargest(_K, map_item_score, key=map_item_score.get)
-    hr = _getHitRatio(ranklist, gtItem)
-    ndcg = _getNDCG(ranklist, gtItem)
-    return (hr, ndcg)
-
-def _getHitRatio(ranklist, gtItem):
-    for item in ranklist:
-        if item == gtItem:
-            return 1
-    return 0
-
-def _getNDCG(ranklist, gtItem):
-    for i in xrange(len(ranklist)):
-        item = ranklist[i]
-        if item == gtItem:
-            return math.log(2) / math.log(i+2)
-    return 0
 
 if __name__ == '__main__':
 
