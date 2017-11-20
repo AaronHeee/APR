@@ -270,10 +270,7 @@ def evaluate(model, sess, dataset, feed_dicts):
     for user in range(_dataset.num_users):
         res.append(_eval_by_user(user))
     res = np.array(res)
-    hr, ndcg, auc, time = (res.mean(axis = 0)).tolist()
-
-    # print time
-    # print "[%.1f]" % time*_dataset.num_users,
+    hr, ndcg, auc = (res.mean(axis = 0)).tolist()
 
     return hr, ndcg, auc
 
@@ -284,17 +281,15 @@ def _eval_by_user(user):
 
     neg_predict, pos_predict = predictions[:-1], predictions[-1]
 
-    rank_begin = time()
-    position = (neg_predict > pos_predict).sum()
-    rank_time = time() - rank_begin
+    position = (neg_predict >= pos_predict).sum()
 
     hr = position < _K
     if hr:
         ndcg = math.log(2) / math.log(position+2)
     else:
         ndcg = 0
-    auc = 1 - (position / len(user_input))  # predictions[-1] is the positive Item of testing set
-    return (hr, ndcg, auc, rank_time)
+    auc = 1 - ((position+1) / len(user_input))  # formula: [#(Xui>Xuj) / #(Users)] = [1 - #(Xui<=Xuj) / #(Users)]
+    return hr, ndcg, auc
 
 def init_logging(args):
     regs = eval(args.regs)
