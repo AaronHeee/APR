@@ -1,13 +1,11 @@
-
 from __future__ import absolute_import
 from __future__ import division
 import os
-import numpy as np
 import math
-import heapq # for retrieval topK
+import numpy as np
+import tensorflow as tf
 from multiprocessing import Pool
 from multiprocessing import cpu_count
-import tensorflow as tf
 import argparse
 import logging
 from time import time
@@ -34,7 +32,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Run MF-BPR.")
     parser.add_argument('--path', nargs='?', default='Data/',
                         help='Input data path.')
-    parser.add_argument('--dataset', nargs='?', default='yelp',
+    parser.add_argument('--dataset', nargs='?', default='ml-1m',
                         help='Choose a dataset.')
     parser.add_argument('--model', nargs='?', default='GMF',
                         help='Choose model: GMF')
@@ -256,7 +254,6 @@ def _evaluate_input(user):
     item_input = np.array(item_input)[:,None]
     return user_input, item_input
 
-@profile
 def evaluate(model, sess, dataset, feed_dicts):
     global _model
     global _K
@@ -281,32 +278,23 @@ def evaluate(model, sess, dataset, feed_dicts):
     return hr, ndcg, auc
 
 def _eval_by_user(user):
-    map_item_score = {}
     user_input, item_input = _feed_dicts[user]
     feed_dict = {model.user_input: user_input, model.item_input: item_input}
-    gtItem = _dataset.testRatings[user][1]
     predictions = _sess.run(_model.output, feed_dict)
-    items = np.sum(item_input, axis = 1).tolist()
 
-    for i in xrange(len(item_input)):
-        item = items[i]
-        map_item_score[item] = predictions[i]
+    neg_predict, pos_predict = predictions[:-1], predictions[-1]
 
     rank_begin = time()
-    ranklist = heapq.nlargest(_K, map_item_score, key=map_item_score.get)
+    position = (neg_predict > pos_predict).sum()
     rank_time = time() - rank_begin
 
-    hr = gtItem in ranklist
-    ndcg = _getNDCG(ranklist, gtItem)
-    auc = (predictions < predictions[-1]).sum() / len(user_input)  # predictions[-1] is the positive Item of testing set
+    hr = position < _K
+    if hr:
+        ndcg = math.log(2) / math.log(position+2)
+    else:
+        ndcg = 0
+    auc = 1 - (position / len(user_input))  # predictions[-1] is the positive Item of testing set
     return (hr, ndcg, auc, rank_time)
-
-def _getNDCG(ranklist, gtItem):
-    for i in xrange(len(ranklist)):
-        item = ranklist[i]
-        if item == gtItem:
-            return math.log(2) / math.log(i+2)
-    return 0
 
 def init_logging(args):
     regs = eval(args.regs)
