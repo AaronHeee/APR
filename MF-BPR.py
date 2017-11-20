@@ -1,3 +1,4 @@
+
 from __future__ import absolute_import
 from __future__ import division
 import os
@@ -33,7 +34,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Run MF-BPR.")
     parser.add_argument('--path', nargs='?', default='Data/',
                         help='Input data path.')
-    parser.add_argument('--dataset', nargs='?', default='ml-1m',
+    parser.add_argument('--dataset', nargs='?', default='yelp',
                         help='Choose a dataset.')
     parser.add_argument('--model', nargs='?', default='GMF',
                         help='Choose model: GMF')
@@ -255,6 +256,7 @@ def _evaluate_input(user):
     item_input = np.array(item_input)[:,None]
     return user_input, item_input
 
+@profile
 def evaluate(model, sess, dataset, feed_dicts):
     global _model
     global _K
